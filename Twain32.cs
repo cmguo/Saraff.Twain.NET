@@ -40,6 +40,7 @@ using System.Reflection;
 using System.Drawing;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 
 namespace Saraff.Twain {
 
@@ -65,11 +66,12 @@ namespace Saraff.Twain {
         private bool _isTwain2Enable=IntPtr.Size!=4||Environment.OSVersion.Platform==PlatformID.Unix||Environment.OSVersion.Platform==PlatformID.MacOSX;
         private CallBackProc _callbackProc;
         private TwainCapabilities _capabilities;
+        private WpfHwnd _wpfHwnd;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Twain32"/> class.
         /// </summary>
-        public Twain32() {
+        public Twain32(System.Windows.Window window = null) {
             this._srcds=new TwIdentity();
             this._srcds.Id=0;
             this._filter=new _MessageFilter(this);
@@ -77,15 +79,27 @@ namespace Saraff.Twain {
             this.DisableAfterAcquire=true;
             this.Palette=new TwainPalette(this);
             this._callbackProc=this._TwCallbackProc;
-            switch(Environment.OSVersion.Platform) {
-                case PlatformID.Unix:
-                case PlatformID.MacOSX:
-                    break;
-                default:
-                    Form _window=new Form();
-                    this._components.Add(_window);
-                    this._hwnd=_window.Handle;
-                    break;
+            if (window == null)
+            {
+                switch(Environment.OSVersion.Platform) {
+                    case PlatformID.Unix:
+                    case PlatformID.MacOSX:
+                        break;
+                    default:
+                        Form _window=new Form();
+                        this._components.Add(_window);
+                        this._hwnd=_window.Handle;
+                        break;
+                }
+            }
+            else
+            {
+                this._wpfHwnd = new WpfHwnd(window);
+                this._hwnd = this._wpfHwnd.WindowHandle;
+                this._wpfHwnd.HwndReady += (s, e) =>
+                {
+                    this._hwnd = e.Hwnd;
+                };
             }
         }
 
@@ -285,6 +299,11 @@ namespace Saraff.Twain {
                             case PlatformID.MacOSX:
                                 break;
                             default:
+                                if (this._wpfHwnd != null)
+                                {
+                                    this._filter.SetFilter();
+                                    break;
+                                }
                                 if(!this.IsTwain2Supported||(this._srcds.SupportedGroups&TwDG.DS2)==0) {
                                     this._filter.SetFilter();
                                 }
@@ -2362,12 +2381,14 @@ namespace Saraff.Twain {
 
                     switch(this._twain._dsmEntry.DsInvoke(this._twain._AppId,this._twain._srcds,TwDG.Control,TwDAT.Event,TwMSG.ProcessEvent,ref this._evtmsg)) {
                         case TwRC.DSEvent:
-                            this._twain._TwCallbackProcCore(this._evtmsg.Message,isCloseReq => {
-                                if(isCloseReq||this._twain.DisableAfterAcquire) {
+                            Task.Run(() => this._twain._TwCallbackProcCore(this._evtmsg.Message, isCloseReq =>
+                            {
+                                if (isCloseReq || this._twain.DisableAfterAcquire)
+                                {
                                     this._RemoveFilter();
                                     this._twain._DisableDataSource();
                                 }
-                            });
+                            }));
                             break;
                         case TwRC.NotDSEvent:
                             return false;
@@ -2400,13 +2421,25 @@ namespace Saraff.Twain {
             public void SetFilter() {
                 if(!this._is_set_filter) {
                     this._is_set_filter=true;
-                    Application.AddMessageFilter(this);
+                    if (_twain._wpfHwnd == null)
+                        Application.AddMessageFilter(this);
+                    else
+                        _twain._wpfHwnd.PreFilterMessage += _wpfHwnd_PreFilterMessage;
                 }
             }
 
             private void _RemoveFilter() {
-                Application.RemoveMessageFilter(this);
+                if (_twain._wpfHwnd == null)
+                    Application.RemoveMessageFilter(this);
+                else
+                    _twain._wpfHwnd.PreFilterMessage -= _wpfHwnd_PreFilterMessage;
                 this._is_set_filter=false;
+            }
+
+            private void _wpfHwnd_PreFilterMessage(object sender, WpfHwnd.PreFilterMessageArgs e)
+            {
+                Message m = e.Message;
+                e.IsHandled = PreFilterMessage(ref m);
             }
 
             [StructLayout(LayoutKind.Sequential,Pack=2)]
