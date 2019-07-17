@@ -293,25 +293,35 @@ namespace Saraff.Twain {
         public void Acquire() {
             if(this.OpenDSM()) {
                 if(this.OpenDataSource()) {
+                    if (this._wpfHwnd != null)
+                    {
+                        this._filter.SetFilter();
+                    }
                     if(this._EnableDataSource()) {
-                        switch(Environment.OSVersion.Platform) {
+                        switch (Environment.OSVersion.Platform)
+                        {
                             case PlatformID.Unix:
                             case PlatformID.MacOSX:
                                 break;
                             default:
                                 if (this._wpfHwnd != null)
                                 {
-                                    this._filter.SetFilter();
                                     break;
                                 }
-                                if(!this.IsTwain2Supported||(this._srcds.SupportedGroups&TwDG.DS2)==0) {
+                                if (!this.IsTwain2Supported || (this._srcds.SupportedGroups & TwDG.DS2) == 0)
+                                {
                                     this._filter.SetFilter();
                                 }
-                                if(!Application.MessageLoop) {
-                                    Application.Run(this._context=new ApplicationContext());
+                                if (!Application.MessageLoop)
+                                {
+                                    Application.Run(this._context = new ApplicationContext());
                                 }
                                 break;
                         }
+                    }
+                    else if (this._wpfHwnd != null)
+                    {
+                        this._filter._RemoveFilter();
                     }
                 }
             }
@@ -1375,6 +1385,8 @@ namespace Saraff.Twain {
                     case TwMSG.DeviceEvent:
                         this._DeviceEventObtain();
                         break;
+                    default:
+                        break;
                 }
             } catch(TwainException ex) {
                 try {
@@ -2381,7 +2393,9 @@ namespace Saraff.Twain {
 
                     switch(this._twain._dsmEntry.DsInvoke(this._twain._AppId,this._twain._srcds,TwDG.Control,TwDAT.Event,TwMSG.ProcessEvent,ref this._evtmsg)) {
                         case TwRC.DSEvent:
-                            Task.Run(() => this._twain._TwCallbackProcCore(this._evtmsg.Message, isCloseReq =>
+                            var msg = this._evtmsg.Message;
+                            Debug.WriteLine(msg);
+                            Task.Run(() => this._twain._TwCallbackProcCore(msg, isCloseReq =>
                             {
                                 if (isCloseReq || this._twain.DisableAfterAcquire)
                                 {
@@ -2428,7 +2442,7 @@ namespace Saraff.Twain {
                 }
             }
 
-            private void _RemoveFilter() {
+            internal void _RemoveFilter() {
                 if (_twain._wpfHwnd == null)
                     Application.RemoveMessageFilter(this);
                 else
