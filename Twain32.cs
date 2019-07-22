@@ -2395,14 +2395,14 @@ namespace Saraff.Twain {
                         case TwRC.DSEvent:
                             var msg = this._evtmsg.Message;
                             Debug.WriteLine(msg);
-                            Task.Run(() => this._twain._TwCallbackProcCore(msg, isCloseReq =>
+                            new Task(() => this._twain._TwCallbackProcCore(msg, isCloseReq =>
                             {
                                 if (isCloseReq || this._twain.DisableAfterAcquire)
                                 {
                                     this._RemoveFilter();
                                     this._twain._DisableDataSource();
                                 }
-                            }));
+                            })).Start();
                             break;
                         case TwRC.NotDSEvent:
                             return false;

@@ -20,7 +20,7 @@ namespace Saraff.Twain
     {
         private System.IntPtr _handle = IntPtr.Zero;
 
-        public class HwndReadyArgs
+        public class HwndReadyArgs : EventArgs
         {
             public HwndReadyArgs(System.IntPtr hwnd)
             {
@@ -30,7 +30,7 @@ namespace Saraff.Twain
             public System.IntPtr Hwnd { get; private set; }
         }
 
-        public class PreFilterMessageArgs
+        public class PreFilterMessageArgs : EventArgs
         {
             public PreFilterMessageArgs(Message m)
             {
