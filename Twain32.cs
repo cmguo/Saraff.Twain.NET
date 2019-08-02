@@ -231,6 +231,23 @@ namespace Saraff.Twain {
         public bool OpenDataSource() {
             if((this._TwainState&TwainStateFlag.DSMOpen)!=0 && (this._TwainState&TwainStateFlag.DSOpen)==0) {
                 for(TwRC _rc=this._dsmEntry.DsmInvoke(this._AppId,TwDG.Control,TwDAT.Identity,TwMSG.OpenDS,ref this._srcds); _rc!=TwRC.Success; ) {
+                    this._TwainState |= TwainStateFlag.DSOpen;
+                    this._TwainState |= TwainStateFlag.DSEnabled;
+                    try
+                    {
+                        TwPendingXfers _pxfr = new TwPendingXfers();
+                        this._dsmEntry.DsInvoke(this._AppId, this._srcds, TwDG.Control, TwDAT.PendingXfers, TwMSG.EndXfer, ref _pxfr);
+                        this._GetTwainStatus();
+                        this._dsmEntry.DsInvoke(this._AppId, this._srcds, TwDG.Control, TwDAT.PendingXfers, TwMSG.Reset, ref _pxfr);
+                        this._GetTwainStatus();
+                        if (_DisableDataSource())
+                            continue;
+                    }
+                    finally
+                    {
+                        this._TwainState &= ~TwainStateFlag.DSOpen;
+                        this._TwainState &= ~TwainStateFlag.DSEnabled;
+                    }
                     throw new TwainException(this._GetTwainStatus(),_rc);
                 }
                 this._TwainState|=TwainStateFlag.DSOpen;
@@ -275,13 +292,27 @@ namespace Saraff.Twain {
                     ModalUI=this.ModalUI,
                     ParentHand=this._hwnd
                 };
-                for(TwRC _rc=this._dsmEntry.DsInvoke(this._AppId,this._srcds,TwDG.Control,TwDAT.UserInterface,TwMSG.EnableDS,ref _guif); _rc!=TwRC.Success; ) {
-                    throw new TwainException(this._GetTwainStatus(),_rc);
+                try
+                {
+                    for (TwRC _rc = this._dsmEntry.DsInvoke(this._AppId, this._srcds, TwDG.Control, TwDAT.UserInterface, TwMSG.EnableDS, ref _guif); _rc != TwRC.Success;)
+                    {
+                        throw new TwainException(this._GetTwainStatus(), _rc);
+                    }
+                    if ((this._TwainState & TwainStateFlag.DSReady) != 0)
+                    {
+                        this._TwainState &= ~TwainStateFlag.DSReady;
+                    }
+                    else
+                    {
+                        this._TwainState |= TwainStateFlag.DSEnabled;
+                    }
                 }
-                if((this._TwainState&TwainStateFlag.DSReady)!=0) {
-                    this._TwainState&=~TwainStateFlag.DSReady;
-                } else {
-                    this._TwainState|=TwainStateFlag.DSEnabled;
+                finally
+                {
+                    if ((this._TwainState & TwainStateFlag.DSEnabled) == 0)
+                    {
+                        this._dsmEntry.DsInvoke(this._AppId, this._srcds, TwDG.Control, TwDAT.UserInterface, TwMSG.DisableDS, ref _guif);
+                    }
                 }
             }
             return (this._TwainState&TwainStateFlag.DSEnabled)!=0;
@@ -297,31 +328,37 @@ namespace Saraff.Twain {
                     {
                         this._filter.SetFilter();
                     }
-                    if(this._EnableDataSource()) {
-                        switch (Environment.OSVersion.Platform)
-                        {
-                            case PlatformID.Unix:
-                            case PlatformID.MacOSX:
-                                break;
-                            default:
-                                if (this._wpfHwnd != null)
-                                {
+                    try
+                    {
+                        if(this._EnableDataSource()) {
+                            switch (Environment.OSVersion.Platform)
+                            {
+                                case PlatformID.Unix:
+                                case PlatformID.MacOSX:
                                     break;
-                                }
-                                if (!this.IsTwain2Supported || (this._srcds.SupportedGroups & TwDG.DS2) == 0)
-                                {
-                                    this._filter.SetFilter();
-                                }
-                                if (!Application.MessageLoop)
-                                {
-                                    Application.Run(this._context = new ApplicationContext());
-                                }
-                                break;
+                                default:
+                                    if (this._wpfHwnd != null)
+                                    {
+                                        break;
+                                    }
+                                    if (!this.IsTwain2Supported || (this._srcds.SupportedGroups & TwDG.DS2) == 0)
+                                    {
+                                        this._filter.SetFilter();
+                                    }
+                                    if (!Application.MessageLoop)
+                                    {
+                                        Application.Run(this._context = new ApplicationContext());
+                                    }
+                                    break;
+                            }
                         }
                     }
-                    else if (this._wpfHwnd != null)
+                    finally
                     {
-                        this._filter._RemoveFilter();
+                        if ((this._TwainState & TwainStateFlag.DSEnabled) == 0)
+                        {
+                            this._filter._RemoveFilter();
+                        }
                     }
                 }
             }
@@ -1186,6 +1223,8 @@ namespace Saraff.Twain {
             }
 
             TwPendingXfers _pxfr=new TwPendingXfers();
+            bool _stopped = false;
+
             try {
                 this._images.Clear();
                 do {
@@ -1197,9 +1236,13 @@ namespace Saraff.Twain {
                     };
                     SetupFileXferEventArgs _args=new SetupFileXferEventArgs();
                     if(this._OnSetupFileXfer(_args)) {
-                        return;
+                        if (_args.Drop)
+                        {
+                            Debug.WriteLine("drop");
+                            return;
+                        }
                     }
-                    if(!string.IsNullOrEmpty(_args.FileName)) {
+                    if (!string.IsNullOrEmpty(_args.FileName)) {
                         _fileXfer.FileName=_args.FileName;
                     }
                     if((this.Capabilities.ImageFileFormat.IsSupported()&TwQC.GetCurrent)!=0) {
@@ -1225,12 +1268,26 @@ namespace Saraff.Twain {
                     for(TwRC _rc=this._dsmEntry.DsInvoke(this._AppId,this._srcds,TwDG.Control,TwDAT.SetupFileXfer,TwMSG.Get,ref _fileXfer); _rc!=TwRC.Success; ) {
                         throw new TwainException(this._GetTwainStatus(),_rc);
                     }
-                    if(this._OnFileXfer(new FileXferEventArgs(ImageFileXfer.Create(_fileXfer)))) {
-                        return;
+                    FileXferEventArgs _args2 = new FileXferEventArgs(ImageFileXfer.Create(_fileXfer));
+                    if (this._OnFileXfer(_args2)) {
+                        if (_args2.Drop)
+                        {
+                            Debug.WriteLine("drop");
+                            return;
+                        }
+                        else if (_stopped)
+                            continue;
+                        for (TwRC _rc = this._dsmEntry.DsInvoke(this._AppId, this._srcds, TwDG.Control, TwDAT.PendingXfers, TwMSG.StopFeeder, ref _fileXfer); _rc != TwRC.Success;)
+                        {
+                            throw new TwainException(this._GetTwainStatus(), _rc);
+                        }
+                        Debug.WriteLine("stop");
+                        _stopped = true;
                     }
                 } while(_pxfr.Count!=0);
             } finally {
                 TwRC _rc=this._dsmEntry.DsInvoke(this._AppId,this._srcds,TwDG.Control,TwDAT.PendingXfers,TwMSG.Reset,ref _pxfr);
+                Debug.WriteLine("reset");
             }
         }
 
@@ -1531,9 +1588,10 @@ namespace Saraff.Twain {
         /// Возвращает код состояния TWAIN.
         /// </summary>
         /// <returns></returns>
-        private TwCC _GetTwainStatus() {
+        public TwCC _GetTwainStatus() {
             TwStatus _status=new TwStatus();
             TwRC _rc=this._dsmEntry.DsInvoke(this._AppId,this._srcds,TwDG.Control,TwDAT.Status,TwMSG.Get,ref _status);
+            Debug.WriteLine("_GetTwainStatus " + _status.ConditionCode);
             return _status.ConditionCode;
         }
 
@@ -2034,6 +2092,11 @@ namespace Saraff.Twain {
                 get;
                 set;
             }
+
+            public bool Drop {
+                get;
+                set;
+            }
         }
 
         #endregion
@@ -2399,6 +2462,7 @@ namespace Saraff.Twain {
                             {
                                 if (isCloseReq || this._twain.DisableAfterAcquire)
                                 {
+                                    Debug.WriteLine("disable");
                                     this._RemoveFilter();
                                     this._twain._DisableDataSource();
                                 }
