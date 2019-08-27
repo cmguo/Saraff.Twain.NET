@@ -1238,7 +1238,7 @@ namespace Saraff.Twain {
                     if(this._OnSetupFileXfer(_args)) {
                         if (_args.Drop)
                         {
-                            Debug.WriteLine("drop");
+                            //Debug.WriteLine("drop");
                             return;
                         }
                     }
@@ -1272,7 +1272,7 @@ namespace Saraff.Twain {
                     if (this._OnFileXfer(_args2)) {
                         if (_args2.Drop)
                         {
-                            Debug.WriteLine("drop");
+                            //Debug.WriteLine("drop");
                             return;
                         }
                         else if (_stopped)
@@ -1281,13 +1281,13 @@ namespace Saraff.Twain {
                         {
                             throw new TwainException(this._GetTwainStatus(), _rc);
                         }
-                        Debug.WriteLine("stop");
+                        //Debug.WriteLine("stop");
                         _stopped = true;
                     }
                 } while(_pxfr.Count!=0);
             } finally {
                 TwRC _rc=this._dsmEntry.DsInvoke(this._AppId,this._srcds,TwDG.Control,TwDAT.PendingXfers,TwMSG.Reset,ref _pxfr);
-                Debug.WriteLine("reset");
+                //Debug.WriteLine("reset");
             }
         }
 
@@ -2446,15 +2446,19 @@ namespace Saraff.Twain {
 
             #region IMessageFilter
 
+            private SortedSet<int> nMsgs = new SortedSet<int>();
+
             public bool PreFilterMessage(ref Message m) {
                 try {
+                    if (nMsgs.Contains(m.Msg))
+                        return false;
+                    Debug.WriteLine(m.ToString());
                     if(this._twain._srcds.Id==0) {
                         return false;
                     }
                     Marshal.StructureToPtr(new WINMSG {hwnd=m.HWnd,message=m.Msg,wParam=m.WParam,lParam=m.LParam},this._evtmsg.EventPtr,true);
                     this._evtmsg.Message=TwMSG.Null;
-
-                    switch(this._twain._dsmEntry.DsInvoke(this._twain._AppId,this._twain._srcds,TwDG.Control,TwDAT.Event,TwMSG.ProcessEvent,ref this._evtmsg)) {
+                    switch (this._twain._dsmEntry.DsInvoke(this._twain._AppId,this._twain._srcds,TwDG.Control,TwDAT.Event,TwMSG.ProcessEvent,ref this._evtmsg)) {
                         case TwRC.DSEvent:
                             var msg = this._evtmsg.Message;
                             Debug.WriteLine(msg);
@@ -2469,6 +2473,7 @@ namespace Saraff.Twain {
                             })).Start();
                             break;
                         case TwRC.NotDSEvent:
+                            nMsgs.Add(m.Msg);
                             return false;
                         case TwRC.Failure:
                             throw new TwainException(this._twain._GetTwainStatus(),TwRC.Failure);
