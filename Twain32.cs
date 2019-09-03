@@ -1451,12 +1451,12 @@ namespace Saraff.Twain {
                 } catch {
                 }
                 this._OnAcquireError(new AcquireErrorEventArgs(ex));
-            } catch {
+            } catch (Exception ex) {
                 try {
                     endAction(false);
                 } catch {
                 }
-                throw;
+                this._OnAcquireError(new AcquireErrorEventArgs(new TwainException(ex.Message, ex)));
             }
         }
 
@@ -2462,7 +2462,7 @@ namespace Saraff.Twain {
                         case TwRC.DSEvent:
                             var msg = this._evtmsg.Message;
                             Debug.WriteLine(msg);
-                            new Task(() => this._twain._TwCallbackProcCore(msg, isCloseReq =>
+                            Task.Factory.StartNew(() => this._twain._TwCallbackProcCore(msg, isCloseReq =>
                             {
                                 if (isCloseReq || this._twain.DisableAfterAcquire)
                                 {
@@ -2470,7 +2470,7 @@ namespace Saraff.Twain {
                                     this._RemoveFilter();
                                     this._twain._DisableDataSource();
                                 }
-                            })).Start();
+                            }));
                             break;
                         case TwRC.NotDSEvent:
                             nMsgs.Add(m.Msg);
